@@ -28,7 +28,7 @@ Invariant mass requires cross-particle communication. We artificially sever the 
 
 ## Repository Structure
 
-\`\`\`text
+\`text
 subnuclear_sherlock/
 ├── data/raw/              # Generated 4-vector NumPy arrays
 ├── src/
@@ -39,26 +39,26 @@ subnuclear_sherlock/
 │   ├── 02_train.py        # Trains the model (BCEWithLogitsLoss)
 │   ├── 03_investigate.py  # Hooks into hidden states and runs Linear Probes
 │   └── 04_causal_knockout.py # Tests physics-loss via Attention Masking
-\`\`\`
+\`
 
 ## Quickstart
 
 This pipeline is designed to run efficiently on local hardware (CPU/Consumer GPU).
 
 1. **Clone and Install**
-   \`\`\`bash
+   \`bash
    git clone https://github.com/YOUR-USERNAME/subnuclear_sherlock.git
    cd subnuclear_sherlock
    pip install torch numpy scikit-learn
-   \`\`\`
+   \`
 
 2. **Run the Experiment**
-   \`\`\`bash
+   \`bash
    python scripts/01_make_data.py
    python scripts/02_train.py
    python scripts/03_investigate.py
    python scripts/04_causal_knockout.py
-   \`\`\`
+   \`
 
 ## Future Work (Scaling to Reality)
 This toy model establishes the baseline interpretability pipeline. The next phase scales this methodology to the open-source **JetClass** dataset, utilizing larger Transformers to identify complex kinematic conservation circuits in 128-particle dense jets.
