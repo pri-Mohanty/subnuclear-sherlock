@@ -1,64 +1,98 @@
 # Subnuclear Sherlock: Mechanistic Interpretability of Lorentz Invariance in Transformers
 
-Traditional Physics-ML treats neural networks as black boxes, optimizing for classification accuracy (e.g., separating Top Quarks from QCD background). However, accuracy alone does not guarantee that a model has learned the underlying physical laws. It may simply be exploiting dataset biases.
+Traditional Physics-ML treats neural networks as black boxes, optimising for classification accuracy — for example, separating Top Quarks from QCD background. High accuracy, however, does not guarantee that a model has learned the underlying physical laws. It may simply be exploiting dataset biases, such as energy thresholds or angular correlations that happen to be discriminative without being physically fundamental.
 
-This repository takes a **Mechanistic Interpretability** approach to a Transformer trained on a toy particle decay dataset. The goal is to answer a single question: **Does a standard Transformer independently discover Special Relativity (the Invariant Mass formula), and if so, exactly which computational circuits compute it?**
+This repository takes a **Mechanistic Interpretability** approach to a Transformer trained on a toy particle decay dataset. The central question is: **does a standard Transformer independently discover Special Relativity — specifically the Lorentz-invariant mass formula — and if so, through what computational pathway?**
 
 ## The Physics Problem
-In high-energy collisions, invariant mass ($M$) is a crucial conserved quantity, defined by the 4-momentum of a particle's decay products:
-$$M = \sqrt{(\sum E)^2 - (\sum \vec{p})^2}$$
+
+In high-energy collisions, invariant mass ($M$) is a Lorentz-invariant conserved quantity defined by the 4-momentum of a particle's decay products:
+
+$$M = \sqrt{\left(\sum E\right)^2 - \left(\sum \vec{p}\right)^2}$$
 
 We train a small, permutation-invariant Transformer (no positional encoding) on simulated 4-vector data:
-* **Signal (Top Quark):** 2-body decay with a strict invariant mass of 173.0 GeV, subject to varying Lorentz boosts along the Z-axis.
-* **Background (QCD Noise):** Random forward-facing light particles with broad, unstructured invariant masses.
 
-The model easily achieves >99% classification accuracy. **But how?**
+- **Signal (Top Quark):** 2-body decay products with a strict invariant mass of 173.0 GeV, subject to varying Lorentz boosts along the Z-axis. The boost randomises individual particle energies and momenta, but leaves $M$ constant.
+- **Background (QCD Noise):** Two independent forward-facing particles with broad, unstructured invariant masses.
+
+The model achieves >99% classification accuracy by epoch 2. **But how?**
 
 ## The Interpretability Pipeline
 
-Instead of looking at the output, we use **Linear Probing** and **Activation Patching** on the internal layers to prove the network computes $M$.
+Rather than inspecting outputs, we use **Linear Probing** and **Causal Knockout** on internal representations to characterise what the model has learned and where.
 
-### 1. Linear Probing (Did it learn physics?)
-We train a linear regression model on the frozen hidden states (`d_model=64`) of the Transformer's first layer to predict the true physical invariant mass. 
-* **Result:** The probe successfully extracts the exact invariant mass with an $R^2 > 0.99$. The model did not just memorize energy thresholds; it mathematically encoded $M = \sqrt{E^2 - p^2}$ into its latent space.
+### 1. Linear Probing — Did it learn physics?
 
-### 2. Causal Knockout (Where does it calculate it?)
-Invariant mass requires cross-particle communication. We artificially sever the Self-Attention mechanism between Particle 1 and Particle 2 (Causal Knockout) and run the probe again.
-* **Result:** Information loss is near total. This causally proves that the Transformer uses its specific Attention Heads as a dynamic vector-addition circuit to compute the relativistic invariants.
+We train a linear regression probe on the frozen, mean-pooled hidden states (`d_model=64`) of the Transformer encoder to predict two candidate physical quantities: raw total energy $E$ and invariant mass $M$.
+
+**Results (held-out test set, 20% split):**
+
+| Target Quantity | Held-out R² |
+|---|---|
+| Total Energy $E$ | 0.6837 |
+| Invariant Mass $M$ | **0.9925** |
+
+The strong preference for $M$ over $E$ is significant. Because the signal is generated with random Lorentz boosts, raw energy is highly variable across events — a model exploiting energy thresholds would generalise poorly. The probe result shows the model has instead encoded the Lorentz-invariant quantity that remains constant across all boosts: $M = \sqrt{E^2 - p^2}$.
+
+### 2. Causal Knockout — Where does it aggregate cross-particle information?
+
+To identify the computational mechanism behind this encoding, we ran a causal knockout experiment: we severed all cross-particle attention connections using PyTorch's `src_mask`, forcing each particle token to process only its own 4-vector through the Transformer layers, and re-ran the linear probe.
+
+**Results:**
+
+| Condition | Held-out R² | Drop |
+|---|---|---|
+| Normal attention | 0.9925 | — |
+| Severed attention | 0.9871 | 0.0054 |
+
+The negligible degradation (ΔR² = 0.005) is the key finding: **the model does not use cross-particle attention to compute invariant mass.** The architecture's mean pooling layer — which aggregates across particle tokens *after* the Transformer — is sufficient to combine both 4-vectors. The model learned to encode each particle's momentum information in its individual token representation, and delegates cross-particle aggregation to pooling rather than attention heads.
+
+This is a meaningful mechanistic result. The attention mechanism is not doing what one might naively expect; the architecture's inductive bias toward pooling-based aggregation shapes which pathway the model learns to use.
+
+### 3. Open Question — Pre-pooling token probing
+
+The natural next experiment is to probe *individual particle tokens* (before mean pooling) rather than the pooled representation. If individual tokens encode $M$, this would require single-particle local computation of a global quantity — a surprising and theoretically interesting result. More likely, neither token alone encodes $M$ strongly, but their combination under pooling does. This experiment is in progress.
 
 ## Repository Structure
 
-\`text
+```
 subnuclear_sherlock/
 ├── data/raw/              # Generated 4-vector NumPy arrays
 ├── src/
-│   ├── generator.py       # Physics simulation (Rest Frame decays + Lorentz Boosting)
-│   ├── model.py           # PyTorch TinyTransformer architecture
+│   ├── generator.py       # Physics simulation (rest frame decays + Lorentz boosting)
+│   ├── model.py           # PyTorch TinyTransformer (mask-aware)
 ├── scripts/
-│   ├── 01_make_data.py    # Generates 10k Signal/Background events
+│   ├── 01_make_data.py    # Generates 20k Signal/Background events
 │   ├── 02_train.py        # Trains the model (BCEWithLogitsLoss)
-│   ├── 03_investigate.py  # Hooks into hidden states and runs Linear Probes
-│   └── 04_causal_knockout.py # Tests physics-loss via Attention Masking
-\`
+│   ├── 03_investigate.py  # Linear probes on encoder hidden states (held-out eval)
+│   └── 04_causal_knockout.py  # Attention masking + comparative probing
+```
 
 ## Quickstart
 
-This pipeline is designed to run efficiently on local hardware (CPU/Consumer GPU).
+Designed to run on local hardware (CPU or consumer GPU).
 
-1. **Clone and Install**
-   \`bash
-   git clone https://github.com/YOUR-USERNAME/subnuclear_sherlock.git
-   cd subnuclear_sherlock
-   pip install torch numpy scikit-learn
-   \`
+```bash
+git clone https://github.com/pri-Mohanty/subnuclear-sherlock.git
+cd subnuclear-sherlock
+pip install torch numpy scikit-learn
 
-2. **Run the Experiment**
-   \`bash
-   python scripts/01_make_data.py
-   python scripts/02_train.py
-   python scripts/03_investigate.py
-   python scripts/04_causal_knockout.py
-   \`
+python scripts/01_make_data.py
+python scripts/02_train.py
+python scripts/03_investigate.py
+python scripts/04_causal_knockout.py
+```
 
-## Future Work (Scaling to Reality)
-This toy model establishes the baseline interpretability pipeline. The next phase scales this methodology to the open-source **JetClass** dataset, utilizing larger Transformers to identify complex kinematic conservation circuits in 128-particle dense jets.
+## Summary of Findings
+
+| Claim | Status | Evidence |
+|---|---|---|
+| Model encodes invariant mass, not raw energy | ✅ Confirmed | R² = 0.99 vs 0.68 on held-out set |
+| Encoding is Lorentz-invariant | ✅ Confirmed | Boost randomisation rules out energy shortcuts |
+| Cross-particle attention computes $M$ | ❌ Falsified | ΔR² = 0.005 after full attention knockout |
+| Mean pooling is the aggregation mechanism | 🔍 Hypothesis | Supported by knockout null result |
+| Pre-pooling token probing | 🔍 In progress | Next experiment |
+
+## Future Work
+
+This pipeline establishes the baseline interpretability methodology. The immediate next step is pre-pooling token-level probing to confirm the pooling hypothesis. The longer-term goal is to scale this methodology to the open-source **JetClass** dataset, applying it to larger Transformers processing 128-particle dense jets — where the question of which circuits compute conserved quantities becomes substantially harder and more physically interesting.
